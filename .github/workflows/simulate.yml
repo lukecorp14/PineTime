@@ -1,200 +1,171 @@
-name: CI
+# GitHub Actions Workflow to build PineTime Watch Face Simulator with LVGL and WebAssembly
+# See https://github.com/AppKaki/lvgl-wasm/blob/master/README.md 
+# and https://lupyuen.github.io/pinetime-rust-mynewt/articles/cloud
 
-# Run this workflow whenever the build may be affected
+# Name of this Workflow
+name: Simulate PineTime Firmware
+
+# When to run this Workflow...
 on:
+
+  # Run this Workflow when files are updated (Pushed) in the "master" Branch
   push:
-    branches: [ main ]
-    paths-ignore:
-      - 'doc/**'
-      - '**.md'
+    branches: [ master ]
+    
+  # Also run this Workflow when a Pull Request is created or updated in the "master" Branch
   pull_request:
-    branches: [ main ]
-    paths-ignore:
-      - 'doc/**'
-      - '**.md'
+    branches: [ master ]
 
+# Steps to run for the Workflow
 jobs:
-  build-firmware:
-    runs-on: ubuntu-22.04
-    container:
-      image: infinitime/infinitime-build
-    outputs:
-      text_size: ${{ steps.output-sizes.outputs.text_size }}
-      data_size: ${{ steps.output-sizes.outputs.data_size }}
-      bss_size: ${{ steps.output-sizes.outputs.bss_size }}
-    env:
-      # InfiniTime sources are downloaded to the current directory.
-      # Override SOURCES_DIR in build.sh
-      SOURCES_DIR: .
-    steps:
-      - name: Checkout source files
-        uses: actions/checkout@v3
-        with:
-          submodules: recursive
-      - name: Build
-        shell: bash
-        run: /opt/build.sh all
-      - name: Output build size
-        id: output-sizes
-        run: |
-          . /opt/build.sh
-          .github/workflows/getSize.sh "$BUILD_DIR"/src/pinetime-app-*.out >> $GITHUB_OUTPUT
-      # Unzip the package because Upload Artifact will zip up the files
-      - name: Unzip DFU package
-        run: unzip ./build/output/pinetime-mcuboot-app-dfu-*.zip -d ./build/output/pinetime-mcuboot-app-dfu
-      - name: Upload DFU artifacts
-        uses: actions/upload-artifact@v3
-        with:
-          name: InfiniTime DFU ${{ github.head_ref }}
-          path: ./build/output/pinetime-mcuboot-app-dfu/*
-      - name: Upload MCUBoot image artifacts
-        uses: actions/upload-artifact@v3
-        with:
-          name: InfiniTime MCUBoot image ${{ github.head_ref }}
-          path: ./build/output/pinetime-mcuboot-app-image-*.bin
-      - name: Upload resources artifacts
-        uses: actions/upload-artifact@v3
-        with:
-          name: InfiniTime resources ${{ github.head_ref }}
-          path: ./build/output/infinitime-resources-*.zip
+  build:
 
-  build-simulator:
-    runs-on: ubuntu-22.04
-    steps:
-    - name: Install SDL2 development package
-      run:  |
-        sudo apt-get update
-        sudo apt-get -y install libsdl2-dev
-
-    - name: Install Ninja
-      run:  |
-        sudo apt-get -y install ninja-build
-
-    - name: Install lv_font_conv
-      run:
-        npm i -g lv_font_conv@1.5.2
-
-    - name: Checkout source files
-      uses: actions/checkout@v3
-      with:
-        submodules: recursive
-
-    - name: Get InfiniSim repo
-      run:  |
-        git clone https://github.com/InfiniTimeOrg/InfiniSim.git --depth 1 --branch main
-        git -C InfiniSim submodule update --init lv_drivers libpng
-
-    - name: CMake
-      # disable BUILD_RESOURCES as this is already done when building the firmware
-      run:  |
-        cmake -G Ninja -S InfiniSim -B build_lv_sim -DInfiniTime_DIR="${PWD}" -DBUILD_RESOURCES=OFF
-
-    - name: Build simulator executable
-      run:  |
-        cmake --build build_lv_sim
-
-    - name: Upload simulator executable
-      uses: actions/upload-artifact@v3
-      with:
-        name: infinisim-${{ github.head_ref }}
-        path: build_lv_sim/infinisim
-
-  get-base-ref-size:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-22.04
-    container:
-      image: infinitime/infinitime-build
-    outputs:
-      text_size: ${{ steps.output-sizes.outputs.text_size }}
-      data_size: ${{ steps.output-sizes.outputs.data_size }}
-      bss_size: ${{ steps.output-sizes.outputs.bss_size }}
-    env:
-      # InfiniTime sources are downloaded to the current directory.
-      # Override SOURCES_DIR in build.sh
-      SOURCES_DIR: .
-    steps:
-    - name: Checkout current base branch files
-      uses: actions/checkout@v3
-      with:
-        ref: ${{ github.base_ref }}
-        submodules: recursive
-
-    - name: Get base branch SHA
-      id: get-base-sha
-      run: |
-        # Fix for "detected dubious ownership in repository at '/__w/InfiniTime/InfiniTime'"
-        git config --global --add safe.directory /__w/InfiniTime/InfiniTime
-        echo base_sha=$(git rev-parse HEAD) >> $GITHUB_OUTPUT
-
-    - name: Cache build
-      id: cache-build
-      uses: actions/cache@v3
-      with:
-        path: ./build
-        key: build-files-${{ steps.get-base-sha.outputs.base_sha }}
-
-    - if: ${{ steps.cache-build.outputs.cache-hit != 'true' }}
-      name: Build
-      shell: bash
-      # Only pinetime-app target is needed, but post_build.sh fails
-      run: /opt/build.sh all
-
-    - name: Output build size
-      id: output-sizes
-      run: |
-        . /opt/build.sh
-        .github/workflows/getSize.sh "$BUILD_DIR"/src/pinetime-app-*.out >> $GITHUB_OUTPUT
-
-  compare-build-size:
-    if: github.event_name == 'pull_request'
-    name: 'Compare build size'
-    needs: [build-firmware, get-base-ref-size]
+    # Run these steps on Ubuntu
     runs-on: ubuntu-latest
+
     steps:
-    - name: Compare build size
-      id: output-sizes-diff
-      run: |
-        TEXT_SIZE=${{ needs.build-firmware.outputs.text_size }}
-        DATA_SIZE=${{ needs.build-firmware.outputs.data_size }}
-        BSS_SIZE=${{ needs.build-firmware.outputs.bss_size }}
+    - uses: actions/checkout@v2
 
-        echo "text_size=$TEXT_SIZE"
-        echo "data_size=$DATA_SIZE"
-        echo "bss_size=$BSS_SIZE"
+    # Uncomment the next 2 steps to support Rust WebAssembly
+    # - name: Fetch cache for Rust Toolchain
+    #   id:   cache-rust
+    #   uses: actions/cache@v2
+    #   with:
+    #     path: |
+    #       ~/.cargo/registry
+    #       ~/.cargo/git
+    #       target
+    #     key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+    # - name: Install Rust Toolchain for emscripten
+    #   run:  |
+    #     rustup default nightly
+    #     rustup target add wasm32-unknown-emscripten
 
-        echo "text_size=$TEXT_SIZE" >> $GITHUB_OUTPUT
-        echo "data_size=$DATA_SIZE" >> $GITHUB_OUTPUT
-        echo "bss_size=$BSS_SIZE" >> $GITHUB_OUTPUT
-
-        TEXT_SIZE_BASE=${{ needs.get-base-ref-size.outputs.text_size }}
-        DATA_SIZE_BASE=${{ needs.get-base-ref-size.outputs.data_size }}
-        BSS_SIZE_BASE=${{ needs.get-base-ref-size.outputs.bss_size }}
-
-        TEXT_SIZE_DIFF=$((TEXT_SIZE - TEXT_SIZE_BASE))
-        DATA_SIZE_DIFF=$((DATA_SIZE - DATA_SIZE_BASE))
-        BSS_SIZE_DIFF=$((BSS_SIZE - BSS_SIZE_BASE))
-
-        echo "text_diff=$TEXT_SIZE_DIFF"
-        echo "data_diff=$DATA_SIZE_DIFF"
-        echo "bss_diff=$BSS_SIZE_DIFF"
-
-        echo "text_diff=$TEXT_SIZE_DIFF" >> $GITHUB_OUTPUT
-        echo "data_diff=$DATA_SIZE_DIFF" >> $GITHUB_OUTPUT
-        echo "bss_diff=$BSS_SIZE_DIFF" >> $GITHUB_OUTPUT
-
-    - name: Write comment information to files
-      run: |
-        tee comment << EOF
-        Build size and comparison to ${{ github.base_ref }}:
-        | Section | Size | Difference |
-        | ------- | ---- | ---------- |
-        | text    | ${{ needs.build-firmware.outputs.text_size }}B | ${{ steps.output-sizes-diff.outputs.text_diff }}B |
-        | data    | ${{ needs.build-firmware.outputs.data_size }}B | ${{ steps.output-sizes-diff.outputs.data_diff }}B |
-        | bss     | ${{ needs.build-firmware.outputs.bss_size }}B  | ${{ steps.output-sizes-diff.outputs.bss_diff }}B  |
-        EOF
-
-    - name: Upload comment
-      uses: actions/upload-artifact@v3
+    - name: Check cache for emscripten
+      id:   cache-emsdk
+      uses: actions/cache@v2
+      env:
+        cache-name: cache-emsdk
       with:
-        name: comment
-        path: comment
+        path: /tmp/emsdk
+        key:  ${{ runner.os }}-build-${{ env.cache-name }}
+        restore-keys: ${{ runner.os }}-build-${{ env.cache-name }}
+
+    - name: Install emscripten
+      if:   steps.cache-emsdk.outputs.cache-hit != 'true'  # Install emscripten if not found in cache
+      run:  |
+        # Based on https://emscripten.org/docs/getting_started/downloads.html
+        cd /tmp
+
+        # Get the emsdk repo
+        git clone https://github.com/emscripten-core/emsdk.git
+
+        # Enter that directory
+        cd emsdk
+
+        # Download and install the latest SDK tools.
+        ./emsdk install latest
+
+        # Make the "latest" SDK "active" for the current user. (writes .emscripten file)
+        ./emsdk activate latest
+
+        # Activate PATH and other environment variables in the current terminal
+        source ./emsdk_env.sh
+
+        # Show version
+        emcc --version
+        emcc --version        
+
+    - name: Check cache for wabt
+      id:   cache-wabt
+      uses: actions/cache@v2
+      env:
+        cache-name: cache-wabt
+      with:
+        path: /tmp/wabt
+        key:  ${{ runner.os }}-build-${{ env.cache-name }}
+        restore-keys: ${{ runner.os }}-build-${{ env.cache-name }}
+
+    - name: Install wabt
+      if:   steps.cache-wabt.outputs.cache-hit != 'true'  # Install wabt if not found in cache
+      run:  |
+        cd /tmp
+        git clone --recursive https://github.com/WebAssembly/wabt
+        cd wabt
+        mkdir build
+        cd build
+        cmake ..
+        cmake --build .
+
+    - name: Checkout LVGL for WebAssembly
+      run:  |
+        cd /tmp
+        git clone https://github.com/AppKaki/lvgl-wasm
+        
+    - name: Copy Watch Face Clock.cpp to LVGL for WebAssembly
+      run:  |
+        cp src/DisplayApp/Screens/Clock.cpp /tmp/lvgl-wasm/clock
+
+    - name: Build LVGL for WebAssembly
+      run:  |
+        # Add emscripten and wabt to the PATH
+        source /tmp/emsdk/emsdk_env.sh
+        export PATH=$PATH:/tmp/wabt/build
+
+        # Build LVGL app: wasm/lvgl.html, lvgl.js, lvgl.wasm
+        cd /tmp/lvgl-wasm
+        wasm/lvgl.sh
+
+    - name: Show files
+      run:  set ; pwd ; ls -l /tmp/lvgl-wasm
+
+    - name: Copy WebAssembly to GitHub Pages
+      run:  |
+        if [ ! -d docs ]; then
+          mkdir docs
+        fi
+        export src=/tmp/lvgl-wasm
+        export docs=$src/docs
+        export wasm=$src/wasm
+        cp \
+          $docs/index.md \
+          $docs/lvgl.html \
+          $wasm/*.html \
+          $wasm/*.js \
+          $wasm/*.wasm \
+          $wasm/*.txt \
+          docs
+
+    - name: Commit GitHub Pages
+      uses: EndBug/add-and-commit@v4.4.0
+      with:
+        # Arguments for the git add command
+        add: docs
+        # The name of the user that will be displayed as the author of the commit
+        # author_name: # optional
+        # The email of the user that will be displayed as the author of the commit
+        # author_email: # optional
+        # The directory where your repository is located. You should use actions/checkout first to set it up
+        # cwd: # optional, default is .
+        # Whether to use the force option on git add, in order to bypass eventual gitignores
+        # force: # optional, default is false
+        # Whether to use the signoff option on git commit
+        # signoff: # optional, default is false
+        # The message for the commit
+        # message: # optional, default is Commit from GitHub Actions
+        # Name of the branch to use, if different from the one that triggered the workflow
+        # ref: # optional
+        # Arguments for the git rm command
+        # remove: # optional, default is 
+        # The name of the tag to add to the new commit
+        # tag: # optional, default is 
+
+    - name: Upload Outputs
+      uses: actions/upload-artifact@v2
+      with:
+        name: wasm
+        path: |
+          /tmp/lvgl-wasm/wasm/*.html
+          /tmp/lvgl-wasm/wasm/*.js
+          /tmp/lvgl-wasm/wasm/*.wasm
+          /tmp/lvgl-wasm/wasm/*.txt
