@@ -30,6 +30,10 @@ WatchFaceDigital::WatchFaceDigital(Controllers::DateTime& dateTimeController,
 
   statusIcons.Create();
 
+  shdback = lv_img_create(lv_scr_act(), nullptr);
+  lv_img_set_src(logoPine, "F:/images/SHDwatchface.bin");
+  lv_obj_set_pos(logoPine, 0, 0);
+
   notificationIcon = lv_label_create(lv_scr_act(), nullptr);
   lv_obj_set_style_local_text_color(notificationIcon, LV_LABEL_PART_MAIN, LV_STATE_DEFAULT, LV_COLOR_LIME);
   lv_label_set_text_static(notificationIcon, NotificationIcon::GetIcon(false));
