@@ -5,5 +5,14 @@
       "output_format": "bin",
       "binary_format": "ARGB8565_RBSWAP",
       "target_path": "/images/"
+
    }
+
+         "shd_background" : {
+      "sources": "images/SHDwatchface.png",
+      "color_format": "CF_TRUE_COLOR_ALPHA",
+      "output_format": "bin",
+      "binary_format": "ARGB8565_RBSWAP",
+      "target_path": "/images/"
+}
 }
